@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1" />
+<title>名片夾 CardKeeper</title>
+<meta name="theme-color" content="#1B2A4A" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+<meta name="apple-mobile-web-app-title" content="名片夾" />
+<link rel="manifest" href="manifest.json" />
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png" />
+<link rel="icon" href="icons/icon-192.png" />
+<link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ===== 列表頁 ===== -->
+  <section id="view-list" class="view active">
+    <header class="topbar">
+      <div class="brand">
+        <span class="brand-mark">名片夾</span>
+        <span class="brand-sub">CardKeeper</span>
+      </div>
+      <button id="btn-scan" class="icon-btn" aria-label="掃描名片">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 8V6a2 2 0 0 1 2-2h2M20 8V6a2 2 0 0 1-2-2h-2M4 16v2a2 2 0 0 0 2 2h2M20 16v2a2 2 0 0 0-2 2h-2" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="1.8"/></svg>
+      </button>
+    </header>
+
+    <div class="search-row">
+      <input id="search" type="search" placeholder="搜尋姓名、公司、標籤…" autocomplete="off" />
+    </div>
+
+    <div id="tag-chips" class="tag-chips"></div>
+
+    <div id="card-list" class="card-list">
+      <!-- 卡片動態插入 -->
+    </div>
+
+    <div id="empty-state" class="empty-state hidden">
+      <div class="empty-card"></div>
+      <p>還沒有名片</p>
+      <p class="empty-sub">點右上角相機圖示掃描第一張名片,<br/>或直接手動新增聯絡人。</p>
+      <button id="btn-add-manual" class="btn-secondary">手動新增聯絡人</button>
+    </div>
+
+    <!-- 側邊 A-Z 索引 (簽名元素) -->
+    <div id="az-rail" class="az-rail"></div>
+  </section>
+
+  <!-- ===== 掃描頁 ===== -->
+  <section id="view-scan" class="view">
+    <header class="topbar">
+      <button class="link-btn" data-nav="view-list">取消</button>
+      <div class="brand-center">掃描名片</div>
+      <span class="topbar-spacer"></span>
+    </header>
+
+    <div class="scan-stage">
+      <div id="scan-drop" class="scan-drop">
+        <img id="scan-preview" class="scan-preview hidden" alt="名片預覽" />
+        <div id="scan-placeholder" class="scan-placeholder">
+          <div class="scan-card-icon"></div>
+          <p>拍攝或選擇一張名片照片</p>
+        </div>
+      </div>
+
+      <input id="file-camera" type="file" accept="image/*" capture="environment" class="hidden-input" />
+      <input id="file-lib" type="file" accept="image/*" class="hidden-input" />
+
+      <div class="scan-actions">
+        <button id="btn-take-photo" class="btn-primary">拍照掃描</button>
+        <button id="btn-pick-photo" class="btn-secondary">從照片選取</button>
+      </div>
+
+      <div id="ocr-status" class="ocr-status hidden">
+        <div class="spinner"></div>
+        <span id="ocr-status-text">辨識文字中…</span>
+      </div>
+
+      <button id="btn-use-scan" class="btn-primary hidden" style="margin-top:14px;">建立聯絡人</button>
+    </div>
+  </section>
+
+  <!-- ===== 新增/編輯頁 ===== -->
+  <section id="view-edit" class="view">
+    <header class="topbar">
+      <button class="link-btn" data-nav="view-list">取消</button>
+      <div class="brand-center" id="edit-title">新增聯絡人</div>
+      <button id="btn-save" class="link-btn link-btn-strong">儲存</button>
+    </header>
+
+    <div class="edit-form">
+      <div class="photo-row">
+        <div id="edit-photo-wrap" class="edit-photo-wrap">
+          <img id="edit-photo" class="edit-photo hidden" alt="名片照片" />
+          <span id="edit-photo-placeholder">名片照片</span>
+        </div>
+      </div>
+
+      <label class="field">
+        <span>姓名</span>
+        <input id="f-name" type="text" placeholder="王小明" />
+      </label>
+      <div class="field-row">
+        <label class="field">
+          <span>公司</span>
+          <input id="f-company" type="text" placeholder="公司名稱" />
+        </label>
+        <label class="field">
+          <span>職稱</span>
+          <input id="f-title" type="text" placeholder="職稱" />
+        </label>
+      </div>
+      <label class="field">
+        <span>電話</span>
+        <input id="f-phone" type="tel" placeholder="09xx-xxx-xxx" />
+      </label>
+      <label class="field">
+        <span>Email</span>
+        <input id="f-email" type="email" placeholder="name@example.com" />
+      </label>
+      <label class="field">
+        <span>地址</span>
+        <input id="f-address" type="text" placeholder="公司地址" />
+      </label>
+      <label class="field">
+        <span>標籤 <small>(用逗號分隔,例如:客戶, 展覽)</small></span>
+        <input id="f-tags" type="text" placeholder="客戶, 2026展覽" />
+      </label>
+      <label class="field">
+        <span>備註</span>
+        <textarea id="f-notes" rows="3" placeholder="第一次見面的場合、談話重點…"></textarea>
+      </label>
+      <label class="field">
+        <span>OCR 原始辨識文字</span>
+        <textarea id="f-raw" rows="3" placeholder="(掃描名片後會自動帶入,供你比對)"></textarea>
+      </label>
+
+      <button id="btn-delete" class="btn-danger hidden">刪除這張名片</button>
+    </div>
+  </section>
+
+  <!-- ===== 詳細頁 ===== -->
+  <section id="view-detail" class="view">
+    <header class="topbar">
+      <button class="link-btn" data-nav="view-list">← 返回</button>
+      <span class="topbar-spacer"></span>
+      <button id="btn-edit" class="link-btn link-btn-strong">編輯</button>
+    </header>
+
+    <div class="detail-card-wrap">
+      <div id="detail-photo" class="detail-photo"></div>
+      <h1 id="d-name" class="detail-name"></h1>
+      <p id="d-title-company" class="detail-sub"></p>
+
+      <div class="detail-actions">
+        <a id="d-call" class="detail-action" href="#">
+          <span class="detail-action-icon">📞</span><span>撥打</span>
+        </a>
+        <a id="d-mail" class="detail-action" href="#">
+          <span class="detail-action-icon">✉️</span><span>Email</span>
+        </a>
+        <button id="d-share" class="detail-action">
+          <span class="detail-action-icon">⇪</span><span>分享名片</span>
+        </button>
+      </div>
+
+      <div class="detail-fields">
+        <div class="detail-field" id="row-address"><span class="k">地址</span><span class="v" id="d-address"></span></div>
+        <div class="detail-field" id="row-notes"><span class="k">備註</span><span class="v" id="d-notes"></span></div>
+        <div class="detail-field" id="row-tags"><span class="k">標籤</span><span class="v" id="d-tags"></span></div>
+        <div class="detail-field" id="row-created"><span class="k">建立時間</span><span class="v" id="d-created"></span></div>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.5/tesseract.min.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
