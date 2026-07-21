@@ -208,6 +208,7 @@ const scanPlaceholder = document.getElementById("scan-placeholder");
 const btnUseScan = document.getElementById("btn-use-scan");
 const ocrStatus = document.getElementById("ocr-status");
 const ocrStatusText = document.getElementById("ocr-status-text");
+const scanAdjust = document.getElementById("scan-adjust");
 
 document.getElementById("btn-scan").addEventListener("click", () => {
   resetScanView();
@@ -224,12 +225,17 @@ document.getElementById("btn-pick-photo").addEventListener("click", () => {
 document.getElementById("file-camera").addEventListener("change", (e) => handleScanFile(e.target.files[0]));
 document.getElementById("file-lib").addEventListener("change", (e) => handleScanFile(e.target.files[0]));
 
+document.getElementById("btn-rotate-left").addEventListener("click", () => rotateScan(-90));
+document.getElementById("btn-rotate-right").addEventListener("click", () => rotateScan(90));
+document.getElementById("btn-rerun-ocr").addEventListener("click", () => runOcr(pendingScan.photo));
+
 function resetScanView() {
   pendingScan = { photo: null, rawText: "" };
   scanPreview.classList.add("hidden");
   scanPlaceholder.classList.remove("hidden");
   btnUseScan.classList.add("hidden");
   ocrStatus.classList.add("hidden");
+  scanAdjust.classList.add("hidden");
   document.getElementById("file-camera").value = "";
   document.getElementById("file-lib").value = "";
 }
@@ -243,9 +249,86 @@ function handleScanFile(file) {
     scanPreview.classList.remove("hidden");
     scanPlaceholder.classList.add("hidden");
     btnUseScan.classList.add("hidden");
+    scanAdjust.classList.remove("hidden");
     await runOcr(pendingScan.photo);
   };
   reader.readAsDataURL(file);
+}
+
+// Rotate the working photo 90° at a time — mis-oriented photos are one of the
+// biggest causes of bad OCR results, so let the user fix it before re-scanning.
+function rotateScan(deg) {
+  const img = new Image();
+  img.onload = () => {
+    const canvas = document.createElement("canvas");
+    const swap = Math.abs(deg) === 90;
+    canvas.width = swap ? img.height : img.width;
+    canvas.height = swap ? img.width : img.height;
+    const ctx = canvas.getContext("2d");
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate((deg * Math.PI) / 180);
+    ctx.drawImage(img, -img.width / 2, -img.height / 2);
+    pendingScan.photo = canvas.toDataURL("image/jpeg", 0.92);
+    scanPreview.src = pendingScan.photo;
+  };
+  img.src = pendingScan.photo;
+}
+
+// Upscale small photos and boost contrast so faint / low-res text on business
+// cards becomes easier for Tesseract to separate from the background.
+function preprocessForOcr(dataUrl) {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.onload = () => {
+      const TARGET_LONG_EDGE = 1800;
+      const longEdge = Math.max(img.width, img.height);
+      const scale = longEdge < TARGET_LONG_EDGE ? TARGET_LONG_EDGE / longEdge : 1;
+      const w = Math.round(img.width * scale);
+      const h = Math.round(img.height * scale);
+
+      const canvas = document.createElement("canvas");
+      canvas.width = w;
+      canvas.height = h;
+      const ctx = canvas.getContext("2d");
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(img, 0, 0, w, h);
+
+      try {
+        const imgData = ctx.getImageData(0, 0, w, h);
+        const data = imgData.data;
+
+        // Grayscale + gather histogram
+        const gray = new Uint8ClampedArray(w * h);
+        let min = 255, max = 0;
+        for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+          const g = 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+          gray[p] = g;
+          if (g < min) min = g;
+          if (g > max) max = g;
+        }
+        // Percentile clip so a few outlier pixels don't ruin the stretch
+        const range = Math.max(max - min, 1);
+
+        for (let i = 0, p = 0; i < data.length; i += 4, p++) {
+          let v = ((gray[p] - min) / range) * 255;
+          // mild extra contrast boost around midtones
+          v = (v - 128) * 1.15 + 128;
+          v = Math.max(0, Math.min(255, v));
+          data[i] = data[i + 1] = data[i + 2] = v;
+        }
+        ctx.putImageData(imgData, 0, 0);
+      } catch (e) {
+        // getImageData can fail on some older iOS Safari versions for large
+        // canvases — fall back to the plain upscaled (non-contrast) image.
+        console.warn("OCR preprocessing skipped:", e);
+      }
+
+      resolve(canvas.toDataURL("image/jpeg", 0.95));
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
 }
 
 async function runOcr(dataUrl) {
@@ -255,14 +338,20 @@ async function runOcr(dataUrl) {
     return;
   }
   ocrStatus.classList.remove("hidden");
+  btnUseScan.classList.add("hidden");
+  ocrStatusText.textContent = "處理影像中…";
+  const ocrInput = await preprocessForOcr(dataUrl);
+
   ocrStatusText.textContent = "辨識文字中… (首次使用需要下載語言包,請保持連線)";
   try {
-    const result = await Tesseract.recognize(dataUrl, "eng+chi_tra", {
+    const result = await Tesseract.recognize(ocrInput, "chi_tra+eng", {
       logger: (m) => {
         if (m.status === "recognizing text") {
           ocrStatusText.textContent = `辨識文字中… ${Math.round(m.progress * 100)}%`;
         }
       },
+      tessedit_pageseg_mode: "11", // sparse text — name cards have scattered blocks, not one paragraph
+      preserve_interword_spaces: "1",
     });
     pendingScan.rawText = result.data.text.trim();
   } catch (err) {
@@ -273,25 +362,65 @@ async function runOcr(dataUrl) {
   btnUseScan.classList.remove("hidden");
 }
 
+const COMPANY_RE = /(股份有限公司|有限公司|企業社|工作室|事務所|集團|公司|Inc\.?|Co\.,?\s?Ltd\.?|Corporation|Corp\.?|LLC|GmbH)/i;
+const TITLE_RE = /(董事長|執行長|總經理|副總經理|總監|經理|副理|主任|組長|工程師|設計師|業務代表|業務員|業務|創辦人|共同創辦人|負責人|顧問|專員|助理|秘書|主管|協理|副總|技術長|營運長|財務長|CEO|CTO|COO|CFO|Founder|President|Director|Manager|Engineer|Designer|Consultant|Specialist|Sales|VP)/i;
+const ADDRESS_RE = /(路|街|巷|弄|號|樓|區|市|縣|Road|Rd\.|St\.|Street|Ave\.|Avenue|Floor|F\.)/;
+const PHONE_RE = /(\+?886[-\s]?\d{1,2}[-\s]?\d{3,4}[-\s]?\d{3,4}|09\d{2}[-\s]?\d{3}[-\s]?\d{3}|0\d{1,2}[-\s]?\d{3,4}[-\s]?\d{3,4})/g;
+const EMAIL_RE = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/;
+
+function isNoiseLine(l) {
+  // drop lines that are just punctuation/symbol noise from OCR misreads
+  return l.replace(/[\s\-–—|_.,:：、。]/g, "").length < 1;
+}
+
 function parseRawText(text) {
-  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-  const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-  const phoneMatch = text.match(/(\+?\d[\d\-\s()]{7,}\d)/);
-  // guess name = first line that isn't the email/phone and has reasonable length
+  const rawLines = text.split("\n").map((l) => l.trim()).filter((l) => l && !isNoiseLine(l));
+  const emailMatch = text.match(EMAIL_RE);
+  const phoneMatches = text.match(PHONE_RE) || [];
+  // prefer a mobile-looking number (09xx) if present, otherwise the first match
+  const mobile = phoneMatches.find((p) => /^09/.test(p.replace(/[-\s]/g, "")));
+  const phoneGuess = mobile || phoneMatches[0] || "";
+
+  const used = new Set();
+  const isUsed = (l) =>
+    (emailMatch && l.includes(emailMatch[0])) ||
+    phoneMatches.some((p) => l.includes(p));
+
+  let companyLine = rawLines.find((l) => !isUsed(l) && COMPANY_RE.test(l)) || "";
+  let titleLine = rawLines.find((l) => !isUsed(l) && l !== companyLine && TITLE_RE.test(l)) || "";
+  let addressLine = rawLines.find((l) => !isUsed(l) && l !== companyLine && l !== titleLine && ADDRESS_RE.test(l) && l.length > 5) || "";
+
+  [companyLine, titleLine, addressLine].forEach((l) => l && used.add(l));
+
+  const remaining = rawLines.filter((l) => !isUsed(l) && !used.has(l));
+
+  // Name heuristic: look for a short line right next to the title line first
+  // (business cards almost always place the name beside/above the job title),
+  // then fall back to the first short "name-shaped" line, then any line.
   let nameGuess = "";
-  for (const l of lines) {
-    if (emailMatch && l.includes(emailMatch[0])) continue;
-    if (phoneMatch && l.includes(phoneMatch[0])) continue;
-    if (l.length >= 2 && l.length <= 20) {
-      nameGuess = l;
-      break;
-    }
+  if (titleLine) {
+    const idx = rawLines.indexOf(titleLine);
+    const neighbors = [rawLines[idx - 1], rawLines[idx + 1]].filter(Boolean);
+    nameGuess = neighbors.find((l) => remaining.includes(l) && looksLikeName(l)) || "";
   }
+  if (!nameGuess) nameGuess = remaining.find((l) => looksLikeName(l)) || "";
+  if (!nameGuess) nameGuess = remaining[0] || "";
+
   return {
     name: nameGuess,
+    company: companyLine,
+    title: titleLine,
+    address: addressLine,
     email: emailMatch ? emailMatch[0] : "",
-    phone: phoneMatch ? phoneMatch[0].trim() : "",
+    phone: phoneGuess.trim(),
   };
+}
+
+function looksLikeName(l) {
+  const cjk = l.match(/[\u4e00-\u9fff]/g);
+  if (cjk && cjk.length >= 2 && cjk.length <= 4 && l.length <= 6) return true; // 中文全名
+  if (/^[A-Za-z][a-z]+\s+[A-Za-z][a-z]+$/.test(l)) return true; // "Firstname Lastname"
+  return false;
 }
 
 btnUseScan.addEventListener("click", () => {
@@ -299,6 +428,9 @@ btnUseScan.addEventListener("click", () => {
   openEdit(null, {
     photo: pendingScan.photo,
     name: guess.name,
+    company: guess.company,
+    title: guess.title,
+    address: guess.address,
     email: guess.email,
     phone: guess.phone,
     raw: pendingScan.rawText,

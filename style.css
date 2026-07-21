@@ -217,6 +217,18 @@ html, body {
   border: 1px solid var(--gold-light);
 }
 .scan-placeholder p { font-size: 13.5px; }
+.scan-tip {
+  font-size: 12px; color: var(--slate); line-height: 1.6;
+  margin: 12px 2px 0; text-align: center;
+}
+.scan-adjust { display: flex; gap: 8px; justify-content: center; margin-top: 14px; }
+.chip-btn {
+  flex: 1; padding: 9px 6px;
+  border-radius: 10px; border: 1px solid var(--gold-light);
+  background: var(--white); color: var(--ink-soft);
+  font-size: 12.5px;
+}
+.chip-btn:active { background: var(--parchment-dim); }
 .scan-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
 .hidden-input { display: none; }
 
